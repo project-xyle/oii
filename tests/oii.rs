@@ -882,6 +882,59 @@ fn eval_limits_stop_runaway() {
 }
 
 #[test]
+fn eval_host_call_gets_names_and_values() {
+    let doc = ok("fun main() [ return double(21) ]");
+    let mut host = |name: &str, args: &[Value]| match name {
+        "double" => Some(Ok(Value::Int(args[0].as_int().unwrap() * 2))),
+        _ => None,
+    };
+    let out =
+        oii::eval_call_host(&doc, "main", &[], &oii::EvalOptions::default(), &mut host).unwrap();
+    assert_eq!(out.value, Value::Int(42));
+}
+
+#[test]
+fn eval_host_miss_falls_through_to_builtins() {
+    let doc = ok("fun main() [ return len(\"abcd\") + pick(2, 3) ]");
+    let mut host = |name: &str, args: &[Value]| match name {
+        "pick" => Some(Ok(args[1].clone())),
+        _ => None,
+    };
+    let out =
+        oii::eval_call_host(&doc, "main", &[], &oii::EvalOptions::default(), &mut host).unwrap();
+    assert_eq!(out.value, Value::Int(7));
+}
+
+#[test]
+fn eval_host_error_is_final() {
+    let doc = ok("fun main() [ return boom() ]");
+    let mut host = |_name: &str, _args: &[Value]| -> Option<Result<Value, oii::EvalError>> {
+        Some(Err(oii::EvalError {
+            code: "E199",
+            message: "host said no".into(),
+        }))
+    };
+    let err = oii::eval_call_host(&doc, "main", &[], &oii::EvalOptions::default(), &mut host)
+        .unwrap_err();
+    assert_eq!(err.code, "E199");
+}
+
+#[test]
+fn eval_host_shadows_nothing() {
+    // bindings and doc funcs win over the host, builtins lose
+    let doc = ok(
+        "fun f(x) [ return x + 100 ]\nfun main() [ let f: fun(x) [ return x + 10 ]\n return f(1) + g(1) ]",
+    );
+    let mut host = |name: &str, args: &[Value]| match name {
+        "g" => Some(Ok(Value::Int(args[0].as_int().unwrap() + 1000))),
+        _ => None,
+    };
+    let out =
+        oii::eval_call_host(&doc, "main", &[], &oii::EvalOptions::default(), &mut host).unwrap();
+    assert_eq!(out.value, Value::Int(1012));
+}
+
+#[test]
 fn roundtrip_set_keeps_comments() {
     let src = "server [\n  port: 1, // keep me\n  host: h\n]\n";
     let mut f = oii::DocFile::parse(src).unwrap();

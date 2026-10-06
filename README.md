@@ -302,6 +302,14 @@ Things that bite:
 - `--fix` only appends missing `]` at EOF. A stray `]` is always an error.
 - In func bodies write `n - 1` with spaces. `n-1` is one bare word, not subtraction.
 
+## Changes in 1.1.1
+
+Embedder surface. No syntax changes.
+
+- `eval_call_host` takes a host callback. A call that is no binding, no doc func and no builtin asks the host with the name and the args. A `None` from the host falls through to the builtins, an `Ok` is the call result, an `Err` is final
+- the host never shadows anything: bindings and doc funcs win, builtins only lose to it
+- `HostFn` type, exported at the crate root and in the prelude
+
 ## Changes in 1.1.0
 
 All additive. Old files parse unchanged.

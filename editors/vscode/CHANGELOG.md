@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.1
+
+- Version sync release, no grammar changes.
+
 ## 1.1.0
 
 - Highlight slashdash `/-`, type annotations `(type)`, triple quoted strings.

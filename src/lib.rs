@@ -19,7 +19,7 @@ pub use decode::{DecodeError, FromNode, FromValue};
 // same name as the trait. macro and trait live in different namespaces
 pub use diag::{Diag, Lang, Level};
 pub use edit::DocFile;
-pub use eval::{EvalError, EvalOptions, EvalOutput, eval, eval_call};
+pub use eval::{EvalError, EvalOptions, EvalOutput, HostFn, eval, eval_call, eval_call_host};
 pub use fmt::format_doc;
 #[cfg(feature = "derive")]
 pub use oii_derive::FromNode;
@@ -29,7 +29,9 @@ pub mod prelude {
     pub use crate::decode::{DecodeError, FromNode, FromValue};
     pub use crate::diag::{Diag, Lang, Level, render_diag, render_diag_with_file};
     pub use crate::edit::DocFile;
-    pub use crate::eval::{EvalError, EvalOptions, EvalOutput, eval, eval_call};
+    pub use crate::eval::{
+        EvalError, EvalOptions, EvalOutput, HostFn, eval, eval_call, eval_call_host,
+    };
     pub use crate::{ParseOptions, ParseOutput, format_doc, parse, parse_with};
     #[cfg(feature = "json")]
     pub use crate::{doc_to_object, to_json, to_json_string};

@@ -19,6 +19,12 @@ impl Default for EvalOptions {
     }
 }
 
+// what an embedder answers when a script calls a name that is no binding, no
+// doc func and no builtin. returning none hands the call to the builtins, so
+// a host never shadows oii on its own names. host funcs are called by name
+// only, they are not values
+pub type HostFn<'h> = dyn FnMut(&str, &[Value]) -> Option<Result<Value, EvalError>> + 'h;
+
 #[derive(Debug, Clone)]
 pub struct EvalOutput {
     pub value: Value,
@@ -70,6 +76,37 @@ pub fn eval_call(
         max_steps: opts.max_steps,
         depth: 0,
         max_depth: opts.max_depth,
+        host: None,
+    };
+    let value = ev.call_user(func, args)?;
+    Ok(EvalOutput {
+        value,
+        output: ev.out,
+        steps: ev.steps,
+    })
+}
+
+// same but unknown calls first ask the host. that is the whole embedder
+// surface: a name in, a value or none out
+pub fn eval_call_host(
+    doc: &Doc,
+    name: &str,
+    args: &[Value],
+    opts: &EvalOptions,
+    host: &mut HostFn,
+) -> Result<EvalOutput, EvalError> {
+    let func = doc
+        .func(name)
+        .ok_or_else(|| err("E100", format!("no func `{name}`")))?;
+    let mut ev = Ev {
+        doc,
+        scopes: vec![HashMap::new()],
+        out: Vec::new(),
+        steps: 0,
+        max_steps: opts.max_steps,
+        depth: 0,
+        max_depth: opts.max_depth,
+        host: Some(host),
     };
     let value = ev.call_user(func, args)?;
     Ok(EvalOutput {
@@ -85,7 +122,7 @@ enum Flow {
     Ret(Value),
 }
 
-struct Ev<'a> {
+struct Ev<'a, 'h> {
     doc: &'a Doc,
     scopes: Vec<HashMap<String, Value>>,
     out: Vec<String>,
@@ -93,9 +130,11 @@ struct Ev<'a> {
     max_steps: u64,
     depth: u32,
     max_depth: u32,
+    // none outside eval_call_host
+    host: Option<&'h mut HostFn<'h>>,
 }
 
-impl<'a> Ev<'a> {
+impl<'a, 'h> Ev<'a, 'h> {
     fn tick(&mut self) -> Result<(), EvalError> {
         self.steps += 1;
         if self.steps > self.max_steps {
@@ -322,7 +361,8 @@ impl<'a> Ev<'a> {
     }
 
     fn eval_call(&mut self, callee: &Expr, args: &[Expr]) -> Result<Value, EvalError> {
-        // named calls. bindings shadow funcs which shadow builtins
+        // named calls. bindings shadow funcs which shadow the host which
+        // shadows builtins
         if let Expr::Var(name) = callee {
             if let Some(v) = self.lookup(name) {
                 let vals = self.eval_args(args)?;
@@ -333,11 +373,27 @@ impl<'a> Ev<'a> {
                 return self.call_user(&f, &vals);
             }
             let vals = self.eval_args(args)?;
+            if let Some(v) = self.host_call(name, &vals)? {
+                return Ok(v);
+            }
             return self.builtin(name, vals);
         }
         let c = self.eval(callee)?;
         let vals = self.eval_args(args)?;
         self.call_value(c, &vals)
+    }
+
+    // the embedder hook. a host error is final, a host miss falls through to
+    // the builtins
+    fn host_call(&mut self, name: &str, vals: &[Value]) -> Result<Option<Value>, EvalError> {
+        match self.host.as_deref_mut() {
+            None => Ok(None),
+            Some(h) => match h(name, vals) {
+                Some(Ok(v)) => Ok(Some(v)),
+                Some(Err(e)) => Err(e),
+                None => Ok(None),
+            },
+        }
     }
 
     fn eval_args(&mut self, args: &[Expr]) -> Result<Vec<Value>, EvalError> {
