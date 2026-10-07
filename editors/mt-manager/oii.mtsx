@@ -1,0 +1,345 @@
+// require MT >= 2.16.5
+// OII syntax highlighting for MT Manager (MT 管理器)
+// OII is the config language for Xyle. Files end with .oii.
+// Install: open this file inside MT Manager and confirm the install prompt.
+{
+    name: ["OII", ".oii"]
+    comment: {startsWith: "//", addToContains: false}
+    comment: {startsWith: "/*", endsWith: "*/", addToContains: false}
+    bracketPairs: ["[]", "()"]
+
+    styles: [
+        // ///doc comment, italic
+        "docComment" > "comment", @I
+        // everything under a /- slashdash is parked, so it reads like a comment
+        "disabled" > "comment"
+        // the /- marker itself
+        "slashdash", #F50000, #FF6B68, @B
+        // (type) annotations
+        "typeAnn" > "type"
+        // fun name
+        "funcName", #00627A, #FFC66D
+        // builtin funcs: len push get ...
+        "builtin" > "keyword2"
+    ]
+
+    defines: [
+        // ------------------------------------------------------------
+        // regex fragments
+        // ------------------------------------------------------------
+
+        // bare words are letters digits _ . - + (lexer: scan_word)
+        "wb": /(?<![\p{L}\p{N}_.\-+])/
+        "we": /(?![\p{L}\p{N}_.\-+])/
+        "ident": /[\p{L}_][\p{L}\p{N}_.\-+]*/
+
+        // chars that end a token. numbers must sit between these (lexer: is_delim)
+        "dlc": /\s,\[\]{}:="#\/'()<>!&|*%/
+        "nb": /(?<![^/ + include("dlc") + /])/
+        "ne": /(?=[/ + include("dlc") + /]|$)/
+
+        "reserved": /(?:impt|fun|let|if|else|while|for|in|return|desc|true|false|null)/ + include("we")
+
+        // key followed by : or = but not ==
+        "keyAhead": /(?=[ \t]*[:=](?!=))/
+
+        // (type)
+        "tyAnn": /\([\p{L}_][\p{L}\p{N}_.\-]*\)/
+
+        // single line "string", raw string with any number of #
+        "dqStr": /"(?:[^"\\\n]|\\.)*"/
+        "rawStr": /(?<rh>#+)"(?:(?!"\k<rh>)[\s\S])*"\k<rh>/
+
+        // a scalar arg or value, used by the /- rules
+        "scalar": /(?:/ + include("tyAnn") + /)?(?:/ + include("dqStr") + /|/ + include("rawStr") + /|[^\s,\[\]]+)/
+
+        // ------------------------------------------------------------
+        // comments
+        // ------------------------------------------------------------
+        "comments": [
+            {match: /\/\/\/(?!\/).*+/, 0: "docComment"}
+            {match: /\/\/.*+/, 0: "comment"}
+            {
+                start: {match: /\/\*/}
+                end: {match: /\*\//}
+                style: "comment"
+            }
+        ]
+
+        // ------------------------------------------------------------
+        // strings
+        // ------------------------------------------------------------
+
+        // escapes and {var} interpolation, shared by "..." and """
+        "cookedBody": [
+            {match: /\\(?:[nrt0\\"']|x[0-9A-Fa-f]{2}|u\{[0-9A-Fa-f]+\})/, 0: "strEscape"}
+            {match: /\\./, 0: "error"}
+            {match: /\{[A-Za-z0-9_]+\}/, 0: "variable"}
+            // a lone { never closes: unclosed or empty interpolation
+            {match: /\{/, 0: "error"}
+        ]
+
+        "strings": [
+            // """ must be followed by a newline. cooked, escapes work
+            {
+                start: {match: /"""(?=\r?\n|$)/}
+                end: {match: /"""/}
+                style: "string"
+                contains: [{include: "cookedBody"}]
+            }
+            // raw strings: #"..."#  ##"..."##  #"""..."""#  verbatim, multiline
+            {match: include("rawStr"), 0: "string"}
+            // raw string that never closes runs to the end of the file
+            {match: /#+"[\s\S]*+/, 0: "string"}
+            // "single line". a newline ends it like the lexer does
+            {
+                start: {match: /"/}
+                end: {match: /"|(?m)$/}
+                style: "string"
+                contains: [{include: "cookedBody"}]
+            }
+        ]
+
+        // ------------------------------------------------------------
+        // numbers
+        // ------------------------------------------------------------
+        "numbers": [
+            // #inf #-inf #nan
+            {match: /(?<!#)#(?:-?inf|nan)(?![\p{L}\p{N}_])/, 0: "number"}
+            // 42 -7 0xFF 0o17 0b1010 1_000 3.14 1e3 .5 1.
+            // 127.0.0.1 and 2021-02-03 stay bare words, they are not numbers
+            {
+                match: include("nb") + /[+\-]?(?:0[xX][0-9A-Fa-f][0-9A-Fa-f_]*|0[oO][0-7][0-7_]*|0[bB][01][01_]*|(?:\d[\d_]*(?:\.(?:\d[\d_]*)?)?|\.\d[\d_]*)(?:[eE][+\-]?\d[\d_]*)?)/ + include("ne"),
+                0: "number"
+            }
+        ]
+
+        // ------------------------------------------------------------
+        // pieces shared by config and func bodies
+        // ------------------------------------------------------------
+
+        // \ at the end of a line continues it. anywhere else it is an error
+        "continuation": [
+            {match: /(?m)\\[ \t\r]*$/, 0: "operator"}
+            {match: /\\/, 0: "error"}
+        ]
+
+        // {} do nothing in OII and a lone # is not a token
+        "stray": [
+            {match: /[{}]/, 0: "error"}
+            {match: /#/, 0: "error"}
+        ]
+
+        // ------------------------------------------------------------
+        // slashdash: /- parks the next node, attribute or arg
+        // ------------------------------------------------------------
+
+        // body of a parked [ ... ]. brackets nest, strings hide their brackets
+        "disabledScope": {
+            start: {match: /\[/, 0: "disabled"}
+            end: {match: /\]/, 0: "disabled"}
+            style: "disabled"
+            contains: [
+                {include: "comments"}
+                {match: include("dqStr"), 0: "disabled"}
+                {match: include("rawStr"), 0: "disabled"}
+                {include: "disabledScope"}
+            ]
+        }
+
+        "slashdash": [
+            // /-node arg [ ... ]
+            {
+                start: {
+                    match: /(\/-)[ \t]*(?:/ + include("tyAnn") + /[ \t]*)?/ + include("ident") + /(?:[^\[\]\n"]|/ + include("dqStr") + /)*\[/,
+                    0: "disabled",
+                    1: "slashdash"
+                }
+                end: {match: /\]/, 0: "disabled"}
+                style: "disabled"
+                contains: [
+                    {include: "comments"}
+                    {match: include("dqStr"), 0: "disabled"}
+                    {match: include("rawStr"), 0: "disabled"}
+                    {include: "disabledScope"}
+                ]
+            }
+            // /-key: [ ... ]
+            {
+                start: {
+                    match: /(\/-)[ \t]*/ + include("ident") + /[ \t]*[:=][ \t]*(?:/ + include("tyAnn") + /[ \t]*)?\[/,
+                    0: "disabled",
+                    1: "slashdash"
+                }
+                end: {match: /\]/, 0: "disabled"}
+                style: "disabled"
+                contains: [
+                    {include: "comments"}
+                    {match: include("dqStr"), 0: "disabled"}
+                    {match: include("rawStr"), 0: "disabled"}
+                    {include: "disabledScope"}
+                ]
+            }
+            // /-key: value
+            {match: /(\/-)[ \t]*/ + include("ident") + /[ \t]*[:=][ \t]*/ + include("scalar"), 0: "disabled", 1: "slashdash"}
+            // /-arg
+            {match: /(\/-)[ \t]*/ + include("scalar"), 0: "disabled", 1: "slashdash"}
+            // /- with nothing after it
+            {match: /\/-/, 0: "slashdash"}
+        ]
+
+        // ------------------------------------------------------------
+        // config: nodes, attributes, arrays
+        // ------------------------------------------------------------
+
+        "literals": [
+            {match: include("wb") + /(?:true|false|null)/ + include("we"), 0: "constant"}
+            {match: include("wb") + /(?:impt|fun|let|if|else|while|for|in|return)/ + include("we"), 0: "keyword"}
+        ]
+
+        // [ ... ] right after : or = is an array value. its words are values, not nodes
+        "array": {
+            start: {match: /([:=])[ \t\r\n]*\[/, 1: "operator"}
+            end: {match: /\]/}
+            contains: [{include: "arrayItems"}]
+        }
+
+        // (type)[ ... ]
+        "typedArray": {
+            start: {match: /(?<=\))[ \t]*\[/}
+            end: {match: /\]/}
+            contains: [{include: "arrayItems"}]
+        }
+
+        // array inside an array
+        "innerArray": {
+            start: {match: /\[/}
+            end: {match: /\]/}
+            contains: [{include: "arrayItems"}]
+        }
+
+        "arrayItems": [
+            {include: "comments"}
+            {include: "slashdash"}
+            {include: "strings"}
+            {include: "numbers"}
+            {match: include("wb") + /(?:true|false|null)/ + include("we"), 0: "constant"}
+            {match: include("tyAnn"), 0: "typeAnn"}
+            {include: "innerArray"}
+            {include: "continuation"}
+            {include: "stray"}
+        ]
+
+        // [ ... ] holding attrs and child nodes
+        "scope": {
+            start: {match: /\[/}
+            end: {match: /\]/}
+            contains: [{include: "configItems"}]
+        }
+
+        "configItems": [
+            {include: "comments"}
+            {include: "slashdash"}
+            {include: "strings"}
+            {include: "numbers"}
+            {include: "funcDef"}
+            {include: "literals"}
+            {match: include("tyAnn"), 0: "typeAnn"}
+            {include: "array"}
+            {include: "typedArray"}
+
+            // key: value
+            {match: include("wb") + /(/ + include("ident") + /)/ + include("keyAhead"), 1: "attrName"}
+
+            // node name: first word of a statement, not a key and not a keyword
+            // (type)name
+            {
+                match: /(?m)(?:^|(?<=[\[,]))[ \t]*(/ + include("tyAnn") + /)[ \t]*(?!/ + include("reserved") + /)(/ + include("ident") + /)/ + include("we") + /(?![ \t]*[:=](?!=))/,
+                1: "typeAnn",
+                2: "tagName"
+            }
+            // name
+            {
+                match: /(?m)(?:^|(?<=[\[,]))[ \t]*(?!/ + include("reserved") + /)(/ + include("ident") + /)/ + include("we") + /(?![ \t]*[:=](?!=))/,
+                1: "tagName"
+            }
+
+            {include: "scope"}
+            {include: "continuation"}
+            {include: "stray"}
+        ]
+
+        // ------------------------------------------------------------
+        // funcs
+        // ------------------------------------------------------------
+
+        // params: names, defaults after : or =. no ^ anchors, the region rules differ
+        "params": [
+            {include: "comments"}
+            {include: "strings"}
+            {include: "numbers"}
+            {match: include("wb") + /(?:true|false|null)/ + include("we"), 0: "constant"}
+            // every remaining word is a param name or a var used in a default
+            {match: include("wb") + include("ident"), 0: "variable"}
+        ]
+
+        "funcDef": [
+            // fun name(params) [
+            {
+                start: {
+                    match: include("wb") + /(fun)/ + include("we") + /[ \t]+(/ + include("ident") + /)[ \t]*\(((?:[^()"]|/ + include("dqStr") + /)*)\)[ \t]*\[/,
+                    1: "keyword",
+                    2: "funcName",
+                    3: {include: "params"}
+                }
+                end: {match: /\]/}
+                contains: [{include: "codeItems"}]
+            }
+            // fun(params) [   a lambda
+            {
+                start: {
+                    match: include("wb") + /(fun)/ + include("we") + /[ \t]*\(((?:[^()"]|/ + include("dqStr") + /)*)\)[ \t]*\[/,
+                    1: "keyword",
+                    2: {include: "params"}
+                }
+                end: {match: /\]/}
+                contains: [{include: "codeItems"}]
+            }
+        ]
+
+        // if / while / for blocks and array literals inside a func body
+        "codeBlock": {
+            start: {match: /\[/}
+            end: {match: /\]/}
+            contains: [{include: "codeItems"}]
+        }
+
+        "codeItems": [
+            {include: "comments"}
+            {include: "strings"}
+            {include: "numbers"}
+            {include: "funcDef"}
+            {match: include("wb") + /(?:true|false|null)/ + include("we"), 0: "constant"}
+            {match: include("wb") + /desc/ + include("we"), 0: "keyword2"}
+            {match: include("wb") + /(?:let|if|else|while|for|in|return|fun|impt)/ + include("we"), 0: "keyword"}
+
+            // builtins
+            {match: include("wb") + /(?:len|push|get|keys|contains|type|str|int|float|range|print|map|put|abs|min|max)/ + include("we") + /(?=[ \t]*\()/, 0: "builtin"}
+            // calls
+            {match: include("wb") + include("ident") + /(?=[ \t]*\()/, 0: "funcName"}
+            // assignment target, let binding, param default
+            {match: include("wb") + /(/ + include("ident") + /)(?=[ \t]*(?::|=(?!=)))/, 1: "variable"}
+
+            // operators. + and - only when they stand alone, a-b is one bare word
+            {match: /==|!=|<=|>=|&&|\|\||[<>!*%\/]|[+\-](?![\p{L}\p{N}_.])/, 0: "operator"}
+
+            {include: "codeBlock"}
+            {include: "continuation"}
+            {include: "stray"}
+        ]
+    ]
+
+    contains: [
+        {include: "configItems"}
+    ]
+}

@@ -335,6 +335,6 @@ All additive. Old files parse unchanged.
 Notes:
 
 Handwritten lexer, chumsky grammar. Core depends on serde. The `json` feature adds serde_json, clap, and the language server. `cargo test` runs the suite.
-Syntax highlighting lives in `editors/`: VSCode (`vscode/`), Sublime, Vim, Emacs, Nano, Helix (with `oii lsp` wiring), plus `tree-sitter-oii/`.
+Syntax highlighting lives in `editors/`: VSCode (`vscode/`), Sublime, Vim, Emacs, Nano, Helix (with `oii lsp` wiring), MT Manager (`mt-manager/`), plus `tree-sitter-oii/`.
 
 License: Apache-2.0. Copyright 2026 Celvra.
